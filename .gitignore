@@ -1,0 +1,4 @@
+glove.42B.300d.txt
+__pycache__/
+.ipynb_checkpoints/
+outputs/
