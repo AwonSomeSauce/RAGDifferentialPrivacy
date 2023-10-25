@@ -18,22 +18,21 @@ class SanText(BaseMechanism):
     def normalize_word(text):
         return unicodedata.normalize('NFD', text)
 
-    def build_vocab_from_dataset(self, df, tokenizer, tokenizer_type="word"):
+    def build_vocab_from_dataset(self, df, tokenizer):
         vocab = Counter()
 
         for text in df['sentence']:
-            if tokenizer_type == "subword":
-                tokens = tokenizer.tokenize(text)
-            else:
-                tokens = [token.text for token in tokenizer(text)]
-            vocab.update(tokens)
+            tokenized_text = [token.text for token in tokenizer(text)]
+            for token in tokenized_text:
+                vocab[token] += 1
 
         return vocab
 
     def compute_probability_matrix(self, word_embed_1, word_embed_2):
         distance = euclidean_distances(word_embed_1, word_embed_2)
-        similarity_matrix = -distance
-        return softmax(self.epsilon * similarity_matrix / 2, axis=1)
+        sim_matrix = -distance
+        prob_matrix = softmax(self.epsilon * sim_matrix / 2, axis=1)
+        return prob_matrix
 
     def process_word_embeddings(self, vocab):
         word_to_id, sensitive_word_to_id = {}, {}
@@ -67,44 +66,47 @@ class SanText(BaseMechanism):
         
         # Identify sensitive words
         num_sensitive_words = int(self.sensitive_word_percentage * len(vocab))
-        sensitive_words = [word for word, _ in vocab.most_common()[:-num_sensitive_words - 1:-1]]
+        words = [key for key, _ in vocab.most_common()]
+        sensitive_words = words[-num_sensitive_words - 1:]
         self.sensitive_words_to_id = {word: idx for idx, word in enumerate(sensitive_words)}
 
         general_embeddings, sensitive_embeddings, word_to_id, sensitive_word_to_id = self.process_word_embeddings(vocab)
         prob_matrix = self.compute_probability_matrix(general_embeddings, sensitive_embeddings)
-
         # Process sentences and apply transformations
-        sanitized_sentences = [self.sanitize_sentence(row['sentence'], tokenizer, word_to_id, sensitive_word_to_id, prob_matrix) for _, row in df.iterrows()]
+        sanitized_sentences = [self.sanitize_sentence(row['sentence'], tokenizer, word_to_id, sensitive_word_to_id, prob_matrix, words) for _, row in df.iterrows()]
 
         sanitized_df = df.copy()
         sanitized_df['sentence'] = sanitized_sentences
 
         return sanitized_df
 
-    def sanitize_sentence(self, sentence, tokenizer, word_to_id, sensitive_word_to_id, prob_matrix):
+    def sanitize_sentence(self, sentence, tokenizer, word_to_id, sensitive_word_to_id, prob_matrix, all_words):
         tokens = [token.text for token in tokenizer(sentence)]
         sanitized_tokens = []
+        id2sword = {v: k for k, v in sensitive_word_to_id.items()}
 
         for word in tokens:
             if word in word_to_id:
                 if word in sensitive_word_to_id:
-                    sanitized_tokens.append(self.get_substitute_word(word, word_to_id, prob_matrix))
+                    sanitized_tokens.append(self.get_substitute_word(word, word_to_id, prob_matrix, id2sword))
                 else:
                     if random.random() <= self.p:
-                        sanitized_tokens.append(self.get_substitute_word(word, word_to_id, prob_matrix))
+                        sanitized_tokens.append(self.get_substitute_word(word, word_to_id, prob_matrix, id2sword))
                     else:
                         sanitized_tokens.append(word)
             else:
                 # Handle out-of-vocab words
-                sanitized_tokens.append(random.choice(list(word_to_id.keys())))
+                sampling_prob = 1 / len(all_words) * np.ones(len(all_words), )
+                sampling_index = np.random.choice(len(sampling_prob), 1, p=sampling_prob)
+                sanitized_tokens.append(all_words[sampling_index[0]])
 
         return " ".join(sanitized_tokens)
 
-    def get_substitute_word(self, word, word_to_id, prob_matrix):
+    def get_substitute_word(self, word, word_to_id, prob_matrix, id2sword):
         word_idx = word_to_id[word]
         sampling_prob = prob_matrix[word_idx]
-        substitute_idx = np.random.choice(len(sampling_prob), p=sampling_prob)
-        return list(self.sensitive_words_to_id.keys())[substitute_idx]
+        substitute_idx = np.random.choice(len(sampling_prob), 1, p=sampling_prob)
+        return id2sword[substitute_idx[0]]
 
     def sanitize(self, dataset):
         return self.transform_sentences(dataset)

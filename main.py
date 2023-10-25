@@ -32,7 +32,7 @@ def main():
     cus_sanitized_df = cus_text_mechanism.sanitize(df)
 
     # Initialize and use SanText to sanitize dataset
-    san_text_mechanism = SanText(word_embedding, word_embedding_path, epsilon, top_k, 0.2)
+    san_text_mechanism = SanText(word_embedding, word_embedding_path, epsilon, 0.9, 0.3)
     san_sanitized_df = san_text_mechanism.sanitize(df)
 
     # Display the original and sanitized reviews side-by-side
