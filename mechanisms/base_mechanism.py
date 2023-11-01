@@ -6,6 +6,7 @@ from tqdm import tqdm
 import numpy as np
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger('presidio-analyzer').setLevel(logging.WARNING)
 
 class BaseMechanism:
     """Base class for SanText and CusText"""

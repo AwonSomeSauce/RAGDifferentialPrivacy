@@ -24,7 +24,7 @@ def main():
     df = pd.DataFrame(data)
     word_embedding = 'glove'
     word_embedding_path = "glove.42B.300d.txt"
-    epsilon = 3.0
+    epsilon = 1.0
     top_k = 5
 
     santext_detector = SanTextDetector(0.9)
@@ -55,11 +55,6 @@ def main():
         print("SanText:", san_sanitized)
         print("SanText + Presidio:", san_pre_sanitized)
         print("-" * 80)
-
-    # for original, cus_pre_sanitized in zip(df.sentence, cus_pre_sanitized_df.sentence):
-    #     print("Original:", original)
-    #     print("CusText + Presidio:", cus_pre_sanitized)
-    #     print("-" * 80)
 
 
 if __name__ == "__main__":

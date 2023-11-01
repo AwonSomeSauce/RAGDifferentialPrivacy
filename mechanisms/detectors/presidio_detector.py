@@ -1,12 +1,15 @@
 from collections import Counter
 from presidio_analyzer import AnalyzerEngine
-from presidio_analyzer.nlp_engine import NlpEngineProvider
 from typing import List, Union
+from presidio_analyzer.nlp_engine import NlpEngineProvider
+
+LANGUAGES_CONFIG_FILE = "mechanisms/detectors/conf/default.yaml"
 
 class PresidioDetector:
 
     def __init__(self):
-        self.engine = AnalyzerEngine(nlp_engine=NlpEngineProvider().create_engine())
+        provider = NlpEngineProvider(conf_file=LANGUAGES_CONFIG_FILE)
+        self.engine = AnalyzerEngine(nlp_engine=provider.create_engine())
 
     def detect(self, vocab: Union[List[str], Counter]) -> List[str]:
         # Convert vocab to list of words if it's a Counter object

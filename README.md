@@ -8,6 +8,31 @@ The Retriever-Augmented Generation model, or RAG, combines the powers of large-s
 
 ## Getting Started
 
+### Prerequisite: Setting Up a Virtual Environment
+
+To avoid library conflicts, it's recommended to use a virtual environment.
+
+```bash
+# Install virtualenv if not already
+pip install virtualenv
+
+# Create a virtual environment named 'venv'
+virtualenv venv
+
+# Activate the virtual environment
+# Windows:
+venv\Scripts\activate
+# macOS and Linux:
+source venv/bin/activate
+```
+
+### 0. Installing Necessary Libraries
+
+```bash
+pip install pandas numpy tqdm spacy sklearn scipy nltk presidio_analyzer presidio_anonymizer
+python -m spacy download en_core_web_lg
+```
+
 ### 1. Collecting GloVe Word Embeddings
 
 Before diving into the project, you'll need the GloVe word embeddings. They play a crucial role in certain data processing steps and ensuring the data's differential privacy.
@@ -24,14 +49,8 @@ Presidio is a library developed by Microsoft to recognize, analyze, and redact p
 
 #### Instructions:
 
-Install the required Presidio components using pip:
+In your root folder, run:
 
 ```bash
-pip install presidio_analyzer presidio_anonymizer
-```
-
-To ensure the Presidio analyzers work effectively, you should also download the `en_core_web_lg` model for spaCy:
-
-```bash
-python -m spacy download en_core_web_lg
+python main.py
 ```
