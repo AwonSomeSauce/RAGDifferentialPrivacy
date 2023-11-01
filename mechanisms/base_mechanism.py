@@ -1,84 +1,74 @@
 import os
 import json
-import unicodedata
+import logging
 from collections import Counter
+from tqdm import tqdm
 import numpy as np
-from nltk.corpus import stopwords
-import nltk
 
-nltk.download("stopwords")
-stop_words = set(stopwords.words("english"))
+logging.basicConfig(level=logging.INFO)
 
 class BaseMechanism:
+    """Base class for SanText and CusText"""
     def __init__(self, word_embedding, word_embedding_path, epsilon):
         self.word_embedding = word_embedding
         self.word_embedding_path = word_embedding_path
         self.epsilon = epsilon
 
     def sanitize(self, dataset):
+        """Sanitize the given dataset"""
         raise NotImplementedError
 
-    def _load_word_embeddings(self, mechanism='SanText'):
-        if (mechanism == 'CusText'):
-            embeddings = []
-            index_to_word = []
-            word_to_index = {}
+    def _load_word_embeddings(self):
+        """Load word embeddings from a file"""
+        embeddings = []
+        index_to_word = []
+        word_to_index = {}
 
-            with open(self.word_embedding_path, "r") as file:
-                for row in file:
-                    content = row.rstrip().split(" ")
-                    if len(content) > 2:  # To skip potential count/dimension rows
-                        word = content[0]
-                        vector = list(map(float, content[1:]))
-                        index_to_word.append(word)
-                        word_to_index[word] = len(index_to_word) - 1
-                        embeddings.append(vector)
+        with open(self.word_embedding_path, "r",  encoding="utf-8") as file:
+            if not self._has_header(file):
+                file.seek(0)
+            num_lines = sum(1 for _ in file)
+            file.seek(0)
 
-            return np.asarray(embeddings), word_to_index, np.asarray(index_to_word)
-        else:
-            word_to_id, sensitive_word_to_id = {}, {}
-            general_word_embeddings, sensitive_word_embeddings = [], []
+            for row in tqdm(file, total=num_lines):
+                content = row.rstrip().split(' ')
+                word, vector = content[0], list(map(float, content[1:]))
+                index_to_word.append(word)
+                word_to_index[word] = len(index_to_word) - 1
+                embeddings.append(vector)
 
-            num_lines = sum(1 for _ in open(self.word_embedding_path))
+        return np.asarray(embeddings), word_to_index, np.asarray(index_to_word)
 
-            with open(self.word_embedding_path) as file:
-                # Handle potential header in word embeddings file
-                if len(file.readline().split()) != 2:
-                    file.seek(0)
-
-                for row in tqdm(file, total=num_lines - 1):
-                    content = row.rstrip().split(' ')
-                    current_word = content[0]
-                    embedding = [float(i) for i in content[1:]]
-
-                    if current_word in vocab and current_word not in word_to_id:
-                        word_to_id[current_word] = len(general_word_embeddings)
-                        general_word_embeddings.append(embedding)
-                        
-                        if current_word in self.sensitive_words_to_id:
-                            sensitive_word_to_id[current_word] = len(sensitive_word_embeddings)
-                            sensitive_word_embeddings.append(embedding)
-
-            return np.array(general_word_embeddings), np.array(sensitive_word_embeddings), word_to_id, sensitive_word_to_id
+    def _has_header(self, file):
+        """Check if the embeddings file has a header"""
+        return len(file.readline().split()) == 2
 
     def _compute_word_frequencies(self, df):
+        """Compute word frequencies from the dataframe"""
         corpus = " ".join(df.sentence)
-        word_frequencies = [
-            word[0]
-            for word in Counter(corpus.split()).most_common()
-            if word[0] not in stop_words
-        ]
-        return word_frequencies
+        all_words = Counter(corpus.split()).most_common()
+
+        return [word[0] for word in all_words]
 
     def _normalize_distances(self, distances):
+        """Normalize the given distances"""
         distance_range = max(distances) - min(distances)
-        return [-(dist - min(distances)) / distance_range for dist in distances]
+        min_distance = min(distances)
+        return [-(dist - min_distance) / distance_range for dist in distances]
 
     def _save_to_file(self, file_path, data):
-        if not os.path.exists(os.path.dirname(file_path)):
-            os.makedirs(os.path.dirname(file_path))
+        """Save the given data to a file"""
+        self._ensure_directory_exists(file_path)
+
         try:
-            with open(file_path, "w") as file:
-                file.write(json.dumps(data, ensure_ascii=False, indent=4))
-        except IOError:
-            print(f"Error writing to {file_path}")
+            with open(file_path, "w", encoding="utf-8") as file:
+                json.dump(data, file, ensure_ascii=False, indent=4)
+        except IOError as e:
+            raise IOError(f"Error writing to {file_path}. Reason: {e}") from e
+
+    @staticmethod
+    def _ensure_directory_exists(file_path):
+        """Ensure the directory for the given file path exists"""
+        dir_name = os.path.dirname(file_path)
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)

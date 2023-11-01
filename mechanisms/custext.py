@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from collections import defaultdict
 import numpy as np
 from tqdm import trange
@@ -7,78 +8,96 @@ from sklearn.metrics.pairwise import euclidean_distances
 from .base_mechanism import BaseMechanism
 
 class CusText(BaseMechanism):
-    def __init__(self, word_embedding, word_embedding_path, epsilon, top_k):
+    """Class for sanitizing text by using CusTextPlus mechanism"""
+    PROBABILITY_MAPPINGS_PATH = "./word_mappings/probability_mappings.txt"
+    SIMILAR_WORD_MAPPINGS_PATH = "./word_mappings/similar_word_mappings.txt"
+
+    def __init__(self, word_embedding, word_embedding_path, epsilon, top_k, detector):
         super().__init__(word_embedding, word_embedding_path, epsilon)
         self.top_k = top_k
+        self.detector = detector
 
     def sanitize(self, dataset):
-        return self.transform_sentences(dataset)
+        """Sanitize dataset"""
+        return self._transform_sentences(dataset)
 
-    def transform_sentences(self, df):
+    def _transform_sentences(self, df):
+        """Transform sentences in the dataframe"""
+        # Lowercase the entire 'sentence' column if using GloVe embeddings
+        if self.word_embedding == 'glove':
+            df['sentence'] = df['sentence'].str.lower()
+
         probability_mappings, similar_word_cache = self._load_or_generate_word_mappings(df)
         
-        new_df = df.copy()
-        transformed_dataset = []
+        logging.info(" Santizing dataset using CusText")
 
-        for sentence in trange(df.shape[0]):
-            words = df.sentence.iloc[sentence].split()
-            new_words = [self._get_substituted_word(word, similar_word_cache, probability_mappings) for word in words]
-            transformed_dataset.append(" ".join(new_words))
+        sensitive_words = self.detector.detect(similar_word_cache.keys())
 
-        new_df.sentence = transformed_dataset
+        transformed_sentences = [
+            " ".join([self._get_substituted_word(word, similar_word_cache, probability_mappings, sensitive_words) 
+                      for word in sentence.split()]) 
+            for sentence in df.sentence]
+        
+        df_copy = df.copy()
+        df_copy.sentence = transformed_sentences
 
-        return new_df
+        return df_copy
 
     def _load_or_generate_word_mappings(self, df):
-        probability_mappings_path = "./word_mappings/probability_mappings.txt"
-        similar_word_cache_path = "./word_mappings/similar_word_mappings.txt"
+        """Load word mappings from files or generate if not available"""
+        if os.path.exists(self.PROBABILITY_MAPPINGS_PATH) and os.path.exists(self.SIMILAR_WORD_MAPPINGS_PATH):
+            logging.info(" Found word mappings in %s, %s. Making use of them.", self.PROBABILITY_MAPPINGS_PATH, self.SIMILAR_WORD_MAPPINGS_PATH)
 
-        if os.path.exists(probability_mappings_path) and os.path.exists(similar_word_cache_path):
-            with open(probability_mappings_path, "r") as file:
+            with open(self.PROBABILITY_MAPPINGS_PATH, "r", encoding="utf-8") as file:
                 probability_mappings = json.load(file)
-            with open(similar_word_cache_path, "r") as file:
+            with open(self.SIMILAR_WORD_MAPPINGS_PATH, "r", encoding="utf-8") as file:
                 similar_word_cache = json.load(file)
             return probability_mappings, similar_word_cache
-        
-        return self.generate_word_mappings(df)
 
-    def _get_substituted_word(self, word, similar_word_cache, probability_mappings):
+        return self._generate_word_mappings(df)
+
+    def _get_substituted_word(self, word, similar_word_cache, probability_mappings, sensitive_words):
+        """Return a substituted word based on mappings or the original word"""
+        if word not in sensitive_words:
+            return word
+
         if word not in similar_word_cache:
-            return str(int(word) + np.random.randint(1000)) if word.isdigit() else word
-        
+            return str(round(float(word))+np.random.randint(1000)) if word.isdigit() else word
+
         substitution_probabilities = probability_mappings[word]
-        return np.random.choice(similar_word_cache[word], p=substitution_probabilities)
+        return np.random.choice(similar_word_cache[word], 1, p=substitution_probabilities)[0]
 
-    def generate_word_mappings(self, df):
+    def _generate_word_mappings(self, df):
+        """Generate word substitution mappings based on embeddings and save to files"""
+        logging.info(" Generating word mappings and saving them in %s and %s", self.PROBABILITY_MAPPINGS_PATH, self.SIMILAR_WORD_MAPPINGS_PATH)
+
         word_frequencies = self._compute_word_frequencies(df)
-
         embeddings, word_to_index, index_to_word = self._load_word_embeddings()
 
-        word_mappings = defaultdict(str)
-        similar_word_cache = defaultdict(list)
-        probability_mappings = defaultdict(list)
+        substituted_word_dict = defaultdict(str)
+        similar_word_dict = defaultdict(list)
+        probability_dict = defaultdict(list)
 
-        for word in trange(len(word_frequencies)):
-            if word in word_to_index and word not in word_mappings:
-                closest_indices = self._get_closest_word_indices(embeddings, word_to_index, word)
-                similar_words = [index_to_word[idx] for idx in closest_indices]
-                similar_word_embeddings = np.array([embeddings[idx] for idx in closest_indices])
+        for index in trange(len(word_frequencies)):
+            word = word_frequencies[index]
+            if word in word_to_index and word not in substituted_word_dict:
+                similar_indices = euclidean_distances(embeddings[word_to_index[word]].reshape(1, -1), embeddings)[0].argsort()[:self.top_k]
+                similar_words = [index_to_word[idx] for idx in similar_indices]
+                similar_embeddings = np.array([embeddings[idx] for idx in similar_indices])
 
                 for similar_word in similar_words:
-                    if similar_word not in word_mappings:
-                        word_mappings[similar_word] = word
-                        distances = euclidean_distances(
-                            embeddings[word_to_index[similar_word]].reshape(1, -1),
-                            similar_word_embeddings,
-                        )[0]
-                        normalized_distances = self._normalize_distances(distances)
-                        probabilities = [np.exp(self.epsilon * dist / 2) for dist in normalized_distances]
-                        normalized_probabilities = [prob / sum(probabilities) for prob in probabilities]
+                    if similar_word not in substituted_word_dict:
+                        substituted_word_dict[similar_word] = word
+                        similarity_distances = euclidean_distances(embeddings[word_to_index[similar_word]].reshape(1, -1), similar_embeddings)[0]
+                        normalized_distances = self._normalize_distances(similarity_distances)
+                        adjusted_probs = [np.exp(self.epsilon * distance / 2) for distance in normalized_distances]
+                        total_prob = sum(adjusted_probs)
+                        probabilities = [prob / total_prob for prob in adjusted_probs]
+                        
+                        probability_dict[similar_word] = probabilities
+                        similar_word_dict[similar_word] = similar_words
 
-                        probability_mappings[similar_word] = normalized_probabilities
-                        similar_word_cache[similar_word] = similar_words
+        self._save_to_file(self.PROBABILITY_MAPPINGS_PATH, probability_dict)
+        self._save_to_file(self.SIMILAR_WORD_MAPPINGS_PATH, similar_word_dict)
 
-        self._save_to_file("./word_mappings/probability_mappings.txt", probability_mappings)
-        self._save_to_file("./word_mappings/similar_word_mappings.txt", similar_word_cache)
-
-        return similar_word_cache, probability_mappings
+        return probability_dict, similar_word_dict
