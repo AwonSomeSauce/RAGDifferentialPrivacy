@@ -43,11 +43,7 @@ Before diving into the project, you'll need the GloVe word embeddings. They play
 - Download the `glove.840B.300d.zip` embeddings of your choice.
 - Once downloaded, save the embeddings in the root directory of this repository.
 
-### 2. Installing the Presidio Library
-
-Presidio is a library developed by Microsoft to recognize, analyze, and redact personally identifiable information (PII) and other sensitive data in text. For this project, it's crucial to have the necessary Presidio components set up.
-
-#### Instructions:
+### Instructions:
 
 In your root folder, run:
 
