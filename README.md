@@ -6,9 +6,9 @@ This repository focuses on enhancing the Retriever-Augmented Generation (RAG) da
 
 The Retriever-Augmented Generation model, or RAG, combines the powers of large-scale retrievers and seq2seq models. However, as with most data-driven models, there's a concern for user privacy. This project is our effort to imbue RAG data with differential privacy mechanisms to protect individual data points, without compromising the efficacy of the model.
 
-## Getting Started
+## Prerquisites
 
-### Prerequisite: Setting Up a Virtual Environment
+### Setting Up a Virtual Environment (Optional)
 
 To avoid library conflicts, it's recommended to use a virtual environment.
 
@@ -43,7 +43,7 @@ Before diving into the project, you'll need the GloVe word embeddings. They play
 - Download the `glove.840B.300d.zip` embeddings of your choice.
 - Once downloaded, save the embeddings in the root directory of this repository.
 
-### Instructions:
+## Getting Started
 
 In your root folder, run:
 
