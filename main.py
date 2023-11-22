@@ -1,60 +1,144 @@
 import pandas as pd
+import numpy as np
+from datasets import load_dataset
+from torch.utils.data import DataLoader
+from transformers import (
+    AdamW,
+    get_linear_schedule_with_warmup,
+    BertForSequenceClassification,
+)
 from mechanisms.detectors.santext_detector import SanTextDetector
 from mechanisms.detectors.custext_detector import CusTextDetector
 from mechanisms.detectors.presidio_detector import PresidioDetector
 from mechanisms.custext import CusText
 from mechanisms.santext import SanText
+from evaluators.training import Trainer
+from evaluators.utils import Bert_dataset
+
+# Constants
+WORD_EMBEDDING = "glove"
+WORD_EMBEDDING_PATH = "glove.840B.300d.txt"
+TOP_K = 20
+P = 0.3
+BATCH_SIZE = 64
+LEARNING_RATE = 2e-5
+EPS = 1e-8
+BERT_MODEL = "bert-base-uncased"
+
+
+def load_and_prepare_data(dataset_name):
+    """Load the dataset and convert to pandas DataFrame."""
+    dataset = load_dataset(dataset_name)
+    return {
+        "train": dataset["train"]
+        .to_pandas()
+        .drop(columns=["idx"])
+        .reset_index(drop=True),
+        "validation": dataset["validation"]
+        .to_pandas()
+        .drop(columns=["idx"])
+        .reset_index(drop=True),
+    }
+
+
+def create_mechanism(detector, epsilon):
+    """Create a mechanism instance based on the detector type."""
+    if detector["mechanism"] == SanText:
+        return detector["mechanism"](
+            WORD_EMBEDDING, WORD_EMBEDDING_PATH, epsilon, P, detector["detector"]
+        )
+    elif detector["mechanism"] == CusText:
+        return detector["mechanism"](
+            WORD_EMBEDDING, WORD_EMBEDDING_PATH, epsilon, TOP_K, detector["detector"]
+        )
+    else:
+        raise ValueError("Unknown mechanism type provided.")
+
+
+def sanitize_datasets(detectors, epsilons, train_df, validation_df):
+    """Sanitize datasets using the provided detectors."""
+    sanitized_data = {}
+    for epsilon in epsilons:
+        for name, detector in detectors.items():
+            mechanism = create_mechanism(detector, epsilon)
+            sanitized_data[f"{name} with epsilon = {epsilon}"] = {
+                "train": mechanism.sanitize(train_df),
+                "validation": mechanism.sanitize(validation_df),
+            }
+    return sanitized_data
+
+
+def initialize_model_and_optimizer():
+    """Initialize the BERT model and the optimizer."""
+    model = BertForSequenceClassification.from_pretrained(
+        BERT_MODEL, num_labels=2, output_attentions=False, output_hidden_states=False
+    )
+    optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, eps=EPS)
+    return model, optimizer
+
+
+def train_and_evaluate(train_df, validation_df, model, optimizer):
+    """Train the model and evaluate on the validation set."""
+    train_dataset = Bert_dataset(train_df)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    validation_dataset = Bert_dataset(validation_df)
+    validation_loader = DataLoader(
+        validation_dataset, batch_size=BATCH_SIZE, shuffle=True
+    )
+
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, num_warmup_steps=0, num_training_steps=len(train_loader) * 3
+    )
+
+    trainer = Trainer(
+        model,
+        scheduler,
+        optimizer,
+        3,  # Number of epochs
+        50,  # Logging steps
+        50,  # Evaluation steps
+        True,
+        None,
+    )
+    trainer.train(train_loader, validation_loader)
+    return trainer.predict(validation_loader)
 
 
 def main():
-    data = {
-        "sentence": [
-            "I loved the movie because of its plot and character development. My number is 2506866708",
-            "The acting was subpar, and I was really disappointed. I live in Dhaka, Bangladesh",
-            "One of the best movies I've ever watched. Highly recommended!",
-            "The storyline was predictable and lacked depth.",
-            "Stunning visuals and outstanding performances by the lead actors.",
-            "I wouldn't watch it again. The pace was too slow.",
-            "A cinematic masterpiece by James Bond that's both touching and captivating.",
-            "The soundtrack perfectly complemented the movie's tone.",
-            "While the movie had a strong start, it failed to maintain that momentum.",
-            "A decent one-time watch, but not something to rave about.",
-        ]
+    """Main function to run the training and evaluation."""
+    data = load_and_prepare_data("sst2")
+    detectors = {
+        "SanText": {"mechanism": SanText, "detector": SanTextDetector(0.9)},
+        "CusText": {"mechanism": CusText, "detector": CusTextDetector()},
+        "SanText + Presidio": {"mechanism": SanText, "detector": PresidioDetector()},
+        "CusText + Presidio": {"mechanism": CusText, "detector": PresidioDetector()},
     }
-    df = pd.DataFrame(data)
-    word_embedding = 'glove'
-    word_embedding_path = "glove.42B.300d.txt"
-    epsilon = 1.0
-    top_k = 5
+    epsilons = [1.0, 2.0, 3.0]
 
-    santext_detector = SanTextDetector(0.9)
-    custext_detector = CusTextDetector()
-    presidio_detector = PresidioDetector()
+    sanitized_data = sanitize_datasets(
+        detectors, epsilons, data["train"], data["validation"]
+    )
+    results_df = pd.DataFrame(columns=["Mechanism", "Accuracy"])
 
-    # Initialize and use CusText to sanitize dataset
-    cus_text_mechanism = CusText(word_embedding, word_embedding_path, epsilon, top_k, custext_detector)
-    cus_sanitized_df = cus_text_mechanism.sanitize(df)
+    model, optimizer = initialize_model_and_optimizer()
 
-    # Initialize and use CusText + Presidio to sanitize dataset
-    cus_pre_text_mechanism = CusText(word_embedding, word_embedding_path, epsilon, top_k, presidio_detector)
-    cus_pre_sanitized_df = cus_pre_text_mechanism.sanitize(df)
+    # Training and evaluation with the original data
+    accuracy = train_and_evaluate(data["train"], data["validation"], model, optimizer)
+    results_row = {"Mechanism": "Original", "Accuracy": accuracy}
+    results_df = pd.concat([results_df, pd.DataFrame([results_row])], ignore_index=True)
 
-    # Initialize and use SanText to sanitize dataset
-    san_text_mechanism = SanText(word_embedding, word_embedding_path, epsilon, 0.3, santext_detector)
-    san_sanitized_df = san_text_mechanism.sanitize(df)
+    # Training and evaluation with sanitized data
+    for mechanism_name, datasets in sanitized_data.items():
+        accuracy = train_and_evaluate(
+            datasets["train"], datasets["validation"], model, optimizer
+        )
+        results_row = {"Mechanism": mechanism_name, "Accuracy": accuracy}
+        results_df = pd.concat(
+            [results_df, pd.DataFrame([results_row])], ignore_index=True
+        )
 
-    # Initialize and use SanText + Presidio to sanitize dataset
-    san_pre_text_mechanism = SanText(word_embedding, word_embedding_path, epsilon, 0.3, presidio_detector)
-    san_pre_sanitized_df = san_pre_text_mechanism.sanitize(df)
-
-    # Display the original and sanitized reviews side-by-side
-    for original, cus_sanitized, cus_pre_sanitized, san_sanitized, san_pre_sanitized in zip(df.sentence, cus_sanitized_df.sentence, cus_pre_sanitized_df.sentence, san_sanitized_df.sentence, san_pre_sanitized_df.sentence):
-        print("Original:", original)
-        print("CusText:", cus_sanitized)
-        print("CusText + Presidio:", cus_pre_sanitized)
-        print("SanText:", san_sanitized)
-        print("SanText + Presidio:", san_pre_sanitized)
-        print("-" * 80)
+    # After all evaluations, save the results to a CSV file
+    results_df.to_csv("results.csv", index=False)
 
 
 if __name__ == "__main__":

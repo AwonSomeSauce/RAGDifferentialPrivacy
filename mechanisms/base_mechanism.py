@@ -1,4 +1,5 @@
 import os
+import csv
 import json
 import logging
 from collections import Counter
@@ -6,14 +7,17 @@ from tqdm import tqdm
 import numpy as np
 
 logging.basicConfig(level=logging.INFO)
-logging.getLogger('presidio-analyzer').setLevel(logging.WARNING)
+logging.getLogger("presidio-analyzer").setLevel(logging.WARNING)
+
 
 class BaseMechanism:
     """Base class for SanText and CusText"""
+
     def __init__(self, word_embedding, word_embedding_path, epsilon):
         self.word_embedding = word_embedding
         self.word_embedding_path = word_embedding_path
         self.epsilon = epsilon
+        self.missing_words = []
 
     def sanitize(self, dataset):
         """Sanitize the given dataset"""
@@ -25,14 +29,14 @@ class BaseMechanism:
         index_to_word = []
         word_to_index = {}
 
-        with open(self.word_embedding_path, "r",  encoding="utf-8") as file:
+        with open(self.word_embedding_path, "r", encoding="utf-8") as file:
             if not self._has_header(file):
                 file.seek(0)
             num_lines = sum(1 for _ in file)
             file.seek(0)
 
             for row in tqdm(file, total=num_lines):
-                content = row.rstrip().split(' ')
+                content = row.rstrip().split(" ")
                 word, vector = content[0], list(map(float, content[1:]))
                 index_to_word.append(word)
                 word_to_index[word] = len(index_to_word) - 1
@@ -56,6 +60,14 @@ class BaseMechanism:
         distance_range = max(distances) - min(distances)
         min_distance = min(distances)
         return [-(dist - min_distance) / distance_range for dist in distances]
+
+    def _save_missing_words_to_csv(self, file_path):
+        """Save the list of missing words to a CSV file"""
+        with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(["word"])  # header row
+            for word in set(self.missing_words):  # writing unique words
+                csvwriter.writerow([word])
 
     def _save_to_file(self, file_path, data):
         """Save the given data to a file"""
