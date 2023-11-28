@@ -24,20 +24,48 @@ BATCH_SIZE = 64
 LEARNING_RATE = 2e-5
 EPS = 1e-8
 BERT_MODEL = "bert-base-uncased"
+DATASET = "qnli"
 
 
-def load_and_prepare_data(dataset_name):
-    """Load the dataset and convert to pandas DataFrame."""
-    dataset = load_dataset(dataset_name)
+def preprocess_text(text):
+    """Remove specific substrings and strip text."""
+    text = text.replace("qnli question:", "")
+    text = text.replace("sentence:", "")
+    return text.strip()
+
+
+def preprocess_data(df):
+    # Rename 'text' column to 'sentence' and preprocess text
+    df = df.rename(columns={"text": "sentence"})
+    df["sentence"] = df["sentence"].apply(preprocess_text)
+
+    # Convert 'label' values from 'not_entailment'/'entailment' to 0/1
+    label_mapping = {"not_entailment": 0, "entailment": 1}
+    df["label"] = df["label"].replace(label_mapping)
+
+    return df
+
+
+def load_and_prepare_data():
+    huggingface_name = "carlosejimenez/seq2seq-qnli" if DATASET == "qnli" else DATASET
+    dataset = load_dataset(huggingface_name)
+
+    # Determine the column to drop based on the dataset name
+    col_to_drop = "orig_idx" if DATASET == "qnli" else "idx"
+
+    # Process each split
+    def process_split(split):
+        df = (
+            dataset[split]
+            .to_pandas()
+            .drop(columns=[col_to_drop])
+            .reset_index(drop=True)
+        )
+        return preprocess_data(df) if DATASET == "qnli" else df
+
     return {
-        "train": dataset["train"]
-        .to_pandas()
-        .drop(columns=["idx"])
-        .reset_index(drop=True),
-        "validation": dataset["validation"]
-        .to_pandas()
-        .drop(columns=["idx"])
-        .reset_index(drop=True),
+        "train": process_split("train"),
+        "validation": process_split("validation"),
     }
 
 
@@ -53,19 +81,6 @@ def create_mechanism(detector, epsilon):
         )
     else:
         raise ValueError("Unknown mechanism type provided.")
-
-
-def sanitize_datasets(detectors, epsilons, train_df, validation_df):
-    """Sanitize datasets using the provided detectors."""
-    sanitized_data = {}
-    for epsilon in epsilons:
-        for name, detector in detectors.items():
-            mechanism = create_mechanism(detector, epsilon)
-            sanitized_data[f"{name} with epsilon = {epsilon}"] = {
-                "train": mechanism.sanitize(train_df),
-                "validation": mechanism.sanitize(validation_df),
-            }
-    return sanitized_data
 
 
 def initialize_model_and_optimizer():
@@ -106,7 +121,7 @@ def train_and_evaluate(train_df, validation_df, model, optimizer):
 
 def main():
     """Main function to run the training and evaluation."""
-    data = load_and_prepare_data("sst2")
+    data = load_and_prepare_data()
     detectors = {
         "SanText": {"mechanism": SanText, "detector": SanTextDetector(0.9)},
         "CusText": {"mechanism": CusText, "detector": CusTextDetector()},
@@ -115,9 +130,6 @@ def main():
     }
     epsilons = [1.0, 2.0, 3.0]
 
-    sanitized_data = sanitize_datasets(
-        detectors, epsilons, data["train"], data["validation"]
-    )
     results_df = pd.DataFrame(columns=["Mechanism", "Accuracy"])
 
     model, optimizer = initialize_model_and_optimizer()
@@ -128,17 +140,20 @@ def main():
     results_df = pd.concat([results_df, pd.DataFrame([results_row])], ignore_index=True)
 
     # Training and evaluation with sanitized data
-    for mechanism_name, datasets in sanitized_data.items():
-        accuracy = train_and_evaluate(
-            datasets["train"], datasets["validation"], model, optimizer
-        )
-        results_row = {"Mechanism": mechanism_name, "Accuracy": accuracy}
-        results_df = pd.concat(
-            [results_df, pd.DataFrame([results_row])], ignore_index=True
-        )
+    for epsilon in epsilons:
+        for name, detector in detectors.items():
+            mechanism = create_mechanism(detector, epsilon)
+            mechanism_name = f"{name} with epsilon = {epsilon}"
+            train_data = mechanism.sanitize(data["train"])
+            validation_data = mechanism.sanitize(data["validation"])
+            accuracy = train_and_evaluate(train_data, validation_data, model, optimizer)
+            results_row = {"Mechanism": mechanism_name, "Accuracy": accuracy}
+            results_df = pd.concat(
+                [results_df, pd.DataFrame([results_row])], ignore_index=True
+            )
 
     # After all evaluations, save the results to a CSV file
-    results_df.to_csv("results.csv", index=False)
+    results_df.to_csv("results_qnli.csv", index=False)
 
 
 if __name__ == "__main__":
