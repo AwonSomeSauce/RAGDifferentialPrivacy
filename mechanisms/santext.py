@@ -90,25 +90,42 @@ class SanText(BaseMechanism):
         prob_matrix = self.compute_probability_matrix(
             general_embeddings, sensitive_word_embeddings
         )
-        sanitized_sentences = [
-            self._sanitize_sentence(
+
+        sanitized_sentences = []
+        sentence_sensitive_words = []
+        sentence_missing_words = []
+
+        for sentence in df["sentence"]:
+            sanitized, sens_words, miss_words = self._sanitize_sentence(
                 sentence,
                 tokenizer,
                 word_to_id,
                 sensitive_word_to_id,
                 prob_matrix,
                 words,
+                sensitive_words,
             )
-            for sentence in df["sentence"]
-        ]
+            sanitized_sentences.append(sanitized)
+            sentence_sensitive_words.append(sens_words)
+            sentence_missing_words.append(miss_words)
+
         sanitized_df = df.copy()
-        sanitized_df["sentence"] = sanitized_sentences
+        sanitized_df["sanitized sentence"] = sanitized_sentences
+        sanitized_df["sensitive words"] = sentence_sensitive_words
+        sanitized_df["missing words"] = sentence_missing_words
         if not os.path.exists(self.MISSING_WORDS_PATH):
             self._save_missing_words_to_csv(self.MISSING_WORDS_PATH)
         return sanitized_df
 
     def _sanitize_sentence(
-        self, sentence, tokenizer, word_to_id, sensitive_word_to_id, prob_matrix, words
+        self,
+        sentence,
+        tokenizer,
+        word_to_id,
+        sensitive_word_to_id,
+        prob_matrix,
+        words,
+        sensitive_words,
     ):
         """Sanitize individual sentence"""
         tokens = [token.text for token in tokenizer(sentence)]
@@ -125,7 +142,13 @@ class SanText(BaseMechanism):
                     words,
                 )
             )
-        return " ".join(sanitized_tokens)
+        sens_words = [
+            word for word in sensitive_words if self.match_whole_word(word, sentence)
+        ]
+        miss_words = [
+            word for word in self.missing_words if self.match_whole_word(word, sentence)
+        ]
+        return " ".join(sanitized_tokens), sens_words, miss_words
 
     def _get_word_substitute_or_original(
         self, word, word_to_id, sensitive_word_to_id, prob_matrix, id_to_word, words
@@ -138,7 +161,8 @@ class SanText(BaseMechanism):
                 )
             else:
                 return word
-        self.missing_words.append(word)
+        else:
+            self.missing_words.append(word)
         return self._handle_out_of_vocab_word(words)
 
     def _get_substitute_word(self, word, word_to_id, prob_matrix, id_to_word):

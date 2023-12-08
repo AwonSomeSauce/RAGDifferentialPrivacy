@@ -10,4 +10,4 @@ class CusTextDetector:
         self.stop_words = set(stopwords.words("english"))
 
     def detect(self, vocab):
-        return [word for word in vocab if word not in self.stop_words]
+        return [word for word in vocab if word.lower() not in self.stop_words]

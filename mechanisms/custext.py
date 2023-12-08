@@ -4,6 +4,7 @@ import logging
 from collections import defaultdict
 import numpy as np
 from tqdm import trange
+from spacy.lang.en import English
 from sklearn.metrics.pairwise import euclidean_distances
 from .base_mechanism import BaseMechanism
 
@@ -37,23 +38,42 @@ class CusText(BaseMechanism):
         logging.info(" Santizing dataset using CusText")
 
         sensitive_words = self.detector.detect(similar_word_cache.keys())
+        tokenizer = English()
 
-        transformed_sentences = [
-            " ".join(
+        sanitized_sentences = []
+        sentence_sensitive_words = []
+        sentence_missing_words = []
+        for sentence in df["sentence"]:
+            tokens = [token.text for token in tokenizer(sentence)]
+            sanitized = " ".join(
                 [
                     self._get_substituted_word(
                         word, similar_word_cache, probability_mappings, sensitive_words
                     )
-                    for word in sentence.split()
+                    for word in tokens
                 ]
             )
-            for sentence in df.sentence
-        ]
+            sens_words = [
+                word
+                for word in sensitive_words
+                if self.match_whole_word(word, sentence)
+            ]
+            miss_words = [
+                word
+                for word in self.missing_words
+                if self.match_whole_word(word, sentence)
+            ]
+            sanitized_sentences.append(sanitized)
+            sentence_sensitive_words.append(sens_words)
+            sentence_missing_words.append(miss_words)
 
-        df_copy = df.copy()
-        df_copy.sentence = transformed_sentences
-
-        return df_copy
+        sanitized_df = df.copy()
+        sanitized_df["sanitized sentence"] = sanitized_sentences
+        sanitized_df["sensitive words"] = sentence_sensitive_words
+        sanitized_df["missing words"] = sentence_missing_words
+        if not os.path.exists(self.MISSING_WORDS_PATH):
+            self._save_missing_words_to_csv(self.MISSING_WORDS_PATH)
+        return sanitized_df
 
     def _load_or_generate_word_mappings(self, df):
         """Load word mappings from files or generate if not available"""
@@ -78,16 +98,23 @@ class CusText(BaseMechanism):
         self, word, similar_word_cache, probability_mappings, sensitive_words
     ):
         """Return a substituted word based on mappings or the original word"""
+        if word not in similar_word_cache:
+            self.missing_words.append(word)
+
+            # If the word is not sensitive, return as is
+            if word not in sensitive_words:
+                return word
+
+            # If the word is a digit, modify it
+            if word.isdigit():
+                return str(int(word) + np.random.randint(1000))
+            else:
+                return word
+
         if word not in sensitive_words:
             return word
 
-        if word not in similar_word_cache:
-            return (
-                str(round(float(word)) + np.random.randint(1000))
-                if word.isdigit()
-                else word
-            )
-
+        # If the word is sensitive and in the cache, use the substitution probabilities
         substitution_probabilities = probability_mappings[word]
         return np.random.choice(
             similar_word_cache[word], 1, p=substitution_probabilities
@@ -120,7 +147,10 @@ class CusText(BaseMechanism):
                 )
 
                 for similar_word in similar_words:
-                    if similar_word not in substituted_word_dict:
+                    if (
+                        similar_word in word_frequencies
+                        and similar_word not in substituted_word_dict
+                    ):
                         substituted_word_dict[similar_word] = word
                         similarity_distances = euclidean_distances(
                             embeddings[word_to_index[similar_word]].reshape(1, -1),
@@ -138,12 +168,8 @@ class CusText(BaseMechanism):
 
                         probability_dict[similar_word] = probabilities
                         similar_word_dict[similar_word] = similar_words
-            else:
-                self.missing_words.append(word)
 
         self._save_to_file(self.PROBABILITY_MAPPINGS_PATH, probability_dict)
         self._save_to_file(self.SIMILAR_WORD_MAPPINGS_PATH, similar_word_dict)
-        if not os.path.exists(self.MISSING_WORDS_PATH):
-            self._save_missing_words_to_csv(self.MISSING_WORDS_PATH)
 
         return probability_dict, similar_word_dict

@@ -1,7 +1,9 @@
 import os
 import csv
 import json
+import re
 import logging
+from spacy.lang.en import English
 from collections import Counter
 from tqdm import tqdm
 import numpy as np
@@ -50,16 +52,23 @@ class BaseMechanism:
 
     def _compute_word_frequencies(self, df):
         """Compute word frequencies from the dataframe"""
-        corpus = " ".join(df.sentence)
-        all_words = Counter(corpus.split()).most_common()
+        tokenizer = English()
+        vocab = Counter()
+        for text in df["sentence"]:
+            tokenized_text = [token.text for token in tokenizer(text) if token.is_alpha]
+            vocab.update(tokenized_text)
 
-        return [word[0] for word in all_words]
+        return [word[0] for word in vocab.most_common()]
 
     def _normalize_distances(self, distances):
         """Normalize the given distances"""
         distance_range = max(distances) - min(distances)
         min_distance = min(distances)
         return [-(dist - min_distance) / distance_range for dist in distances]
+
+    def match_whole_word(self, text, word):
+        pattern = r"\b{}\b".format(re.escape(word))
+        return re.search(pattern, text) is not None
 
     def _save_missing_words_to_csv(self, file_path):
         """Save the list of missing words to a CSV file"""

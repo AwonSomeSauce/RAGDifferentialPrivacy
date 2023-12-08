@@ -46,6 +46,13 @@ def preprocess_data(df):
     return df
 
 
+def preprocess_df(df):
+    df = df.drop("sentence", axis=1, inplace=True)
+    df = df.rename(columns={"sanitized sentence": "sentence"}, inplace=True)
+
+    return df
+
+
 def load_and_prepare_data():
     huggingface_name = "carlosejimenez/seq2seq-qnli" if DATASET == "qnli" else DATASET
     dataset = load_dataset(huggingface_name)
@@ -146,6 +153,11 @@ def main():
             mechanism_name = f"{name} with epsilon = {epsilon}"
             train_data = mechanism.sanitize(data["train"])
             validation_data = mechanism.sanitize(data["validation"])
+            train_data.head(100).to_csv(
+                f"{mechanism_name} sanitized {DATASET}.csv", index=False
+            )
+            train_data = preprocess_df(train_data)
+            validation_data = preprocess_df(validation_data)
             accuracy = train_and_evaluate(train_data, validation_data, model, optimizer)
             results_row = {"Mechanism": mechanism_name, "Accuracy": accuracy}
             results_df = pd.concat(
