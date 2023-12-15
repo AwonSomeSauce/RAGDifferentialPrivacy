@@ -22,11 +22,12 @@ class SanText(BaseMechanism):
         self.p = p
         self.detector = detector
 
-    def build_vocab_from_dataset(self, df, tokenizer):
+    def build_vocab_from_dataset(self, df):
         """Build vocabulary from dataset"""
+        tokenizer = English()
         vocab = Counter()
         for text in df["sentence"]:
-            tokenized_text = [token.text for token in tokenizer(text)]
+            tokenized_text = [token.text for token in tokenizer(text) if token.is_alpha]
             vocab.update(tokenized_text)
         return vocab
 
@@ -76,8 +77,7 @@ class SanText(BaseMechanism):
     def _transform_sentences(self, df):
         """Transform sentences in the dataframe"""
 
-        tokenizer = English()
-        vocab = self.build_vocab_from_dataset(df, tokenizer)
+        vocab = self.build_vocab_from_dataset(df)
         words = [key for key, _ in vocab.most_common()]
         sensitive_words = self.detector.detect(vocab)
         processed_data = self.process_word_embeddings(vocab, sensitive_words)
@@ -98,7 +98,6 @@ class SanText(BaseMechanism):
         for sentence in df["sentence"]:
             sanitized, sens_words, miss_words = self._sanitize_sentence(
                 sentence,
-                tokenizer,
                 word_to_id,
                 sensitive_word_to_id,
                 prob_matrix,
@@ -120,7 +119,6 @@ class SanText(BaseMechanism):
     def _sanitize_sentence(
         self,
         sentence,
-        tokenizer,
         word_to_id,
         sensitive_word_to_id,
         prob_matrix,
@@ -128,7 +126,8 @@ class SanText(BaseMechanism):
         sensitive_words,
     ):
         """Sanitize individual sentence"""
-        tokens = [token.text for token in tokenizer(sentence)]
+        tokenizer = English()
+        tokens = [token.text for token in tokenizer(sentence) if token.is_alpha]
         sanitized_tokens = []
         id_to_word = {v: k for k, v in sensitive_word_to_id.items()}
         for word in tokens:

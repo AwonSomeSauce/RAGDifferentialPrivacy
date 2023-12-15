@@ -2,7 +2,7 @@
 
 # This stuff is required how much time you want to use hours:minutes:seconds
 # Should try to minimize as much as possible because otherwise our usage goes up even though we are not using it
-#SBATCH --time=24:00:00
+#SBATCH --time=72:00:00
 
 # This is required as well
 #SBATCH --account=def-nernst
@@ -37,6 +37,7 @@ source env/bin/activate
 pip install --no-index --upgrade pip
 
 # pip install ./contractions-0.0.58-py2.py3-none-any.whl
+pip install pyarrow
 pip install datasets transformers torch pandas numpy tqdm spacy sklearn scipy nltk presidio_analyzer presidio_anonymizer
 # python -m spacy download en_core_web_lg
 

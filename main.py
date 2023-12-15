@@ -1,3 +1,4 @@
+import gc
 import pandas as pd
 import numpy as np
 from datasets import load_dataset
@@ -17,7 +18,7 @@ from evaluators.utils import Bert_dataset
 
 # Constants
 WORD_EMBEDDING = "glove"
-WORD_EMBEDDING_PATH = "glove.840B.300d.txt"
+WORD_EMBEDDING_PATH = "glove.42B.300d.txt"
 TOP_K = 20
 P = 0.3
 BATCH_SIZE = 64
@@ -39,6 +40,9 @@ def preprocess_data(df):
     df = df.rename(columns={"text": "sentence"})
     df["sentence"] = df["sentence"].apply(preprocess_text)
 
+    # Convert sentences to lowercase
+    df["sentence"] = df["sentence"].apply(lambda x: x.lower())
+
     # Convert 'label' values from 'not_entailment'/'entailment' to 0/1
     label_mapping = {"not_entailment": 0, "entailment": 1}
     df["label"] = df["label"].replace(label_mapping)
@@ -46,7 +50,7 @@ def preprocess_data(df):
     return df
 
 
-def preprocess_df(df):
+def postprocess_df(df):
     df = df.drop("sentence", axis=1, inplace=True)
     df = df.rename(columns={"sanitized sentence": "sentence"}, inplace=True)
 
@@ -156,13 +160,17 @@ def main():
             train_data.head(100).to_csv(
                 f"{mechanism_name} sanitized {DATASET}.csv", index=False
             )
-            train_data = preprocess_df(train_data)
-            validation_data = preprocess_df(validation_data)
+            train_data = postprocess_df(train_data)
+            validation_data = postprocess_df(validation_data)
             accuracy = train_and_evaluate(train_data, validation_data, model, optimizer)
             results_row = {"Mechanism": mechanism_name, "Accuracy": accuracy}
             results_df = pd.concat(
                 [results_df, pd.DataFrame([results_row])], ignore_index=True
             )
+
+            # Free memory
+            del mechanism, train_data, validation_data
+            gc.collect()
 
     # After all evaluations, save the results to a CSV file
     results_df.to_csv("results_qnli.csv", index=False)

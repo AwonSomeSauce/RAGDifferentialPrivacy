@@ -15,14 +15,18 @@ np.random.seed(42)
 class CusText(BaseMechanism):
     """Class for sanitizing text by using CusTextPlus mechanism"""
 
-    PROBABILITY_MAPPINGS_PATH = "./word_mappings/probability_mappings.txt"
-    SIMILAR_WORD_MAPPINGS_PATH = "./word_mappings/similar_word_mappings.txt"
-    MISSING_WORDS_PATH = "missing_words_custext.csv"
-
     def __init__(self, word_embedding, word_embedding_path, epsilon, top_k, detector):
         super().__init__(word_embedding, word_embedding_path, epsilon)
         self.top_k = top_k
         self.detector = detector
+
+        self.PROBABILITY_MAPPINGS_PATH = (
+            f"./word_mappings/probability_mappings_{self.epsilon}.txt"
+        )
+        self.SIMILAR_WORD_MAPPINGS_PATH = (
+            f"./word_mappings/similar_word_mappings_{self.epsilon}.txt"
+        )
+        self.MISSING_WORDS_PATH = "missing_words_custext.csv"
 
     def sanitize(self, dataset):
         """Sanitize dataset"""
@@ -128,6 +132,7 @@ class CusText(BaseMechanism):
             self.SIMILAR_WORD_MAPPINGS_PATH,
         )
 
+        print("CALCULATING WORD FREQUENCIES")
         word_frequencies = self._compute_word_frequencies(df)
         embeddings, word_to_index, index_to_word = self._load_word_embeddings()
 
@@ -135,6 +140,7 @@ class CusText(BaseMechanism):
         similar_word_dict = defaultdict(list)
         probability_dict = defaultdict(list)
 
+        print("WORD FREQUENCIES LENGTH: ", len(word_frequencies))
         for index in trange(len(word_frequencies)):
             word = word_frequencies[index]
             if word in word_to_index and word not in substituted_word_dict:

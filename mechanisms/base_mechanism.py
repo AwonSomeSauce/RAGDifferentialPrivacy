@@ -34,10 +34,8 @@ class BaseMechanism:
         with open(self.word_embedding_path, "r", encoding="utf-8") as file:
             if not self._has_header(file):
                 file.seek(0)
-            num_lines = sum(1 for _ in file)
-            file.seek(0)
 
-            for row in tqdm(file, total=num_lines):
+            for row in tqdm(file):
                 content = row.rstrip().split(" ")
                 word, vector = content[0], list(map(float, content[1:]))
                 index_to_word.append(word)
