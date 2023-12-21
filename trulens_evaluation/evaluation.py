@@ -111,7 +111,7 @@ def evaluate_mechanism(tab_df, mechanism, results_df):
             responses = [query_engine.query(question) for question in batch]
 
     records, feedback = tru.get_records_and_feedback(app_ids=[mechanism])
-    records.to_csv(f"{mechanism}.csv", index=False)
+    records.to_csv(f"results/{mechanism}.csv", index=False)
     results_row = {
         "Mechanism": mechanism,
         "Answer Relevance": records["Answer Relevance"].mean(),
