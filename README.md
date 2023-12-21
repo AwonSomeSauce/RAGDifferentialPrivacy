@@ -29,7 +29,7 @@ source venv/bin/activate
 ### 0. Installing Necessary Libraries
 
 ```bash
-pip install pandas numpy tqdm spacy sklearn scipy nltk presidio_analyzer presidio_anonymizer llama-index
+pip install pandas numpy tqdm spacy sklearn scipy nltk presidio_analyzer presidio_anonymizer openai llama-index trulens-eval
 python -m spacy download en_core_web_lg
 ```
 

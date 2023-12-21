@@ -2,10 +2,11 @@ glove.42B.300d.txt
 glove.840B.300d.txt
 __pycache__/
 .ipynb_checkpoints/
-outputs/
+results/
 venv/
 word_mappings/
 trained_model/
 training_job.sh
 echr_train.json
 default.sqlite
+.DS_Store
