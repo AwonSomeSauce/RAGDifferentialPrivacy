@@ -13,19 +13,20 @@ from mechanisms.detectors.custext_detector import CusTextDetector
 from mechanisms.detectors.presidio_detector import PresidioDetector
 from mechanisms.custext import CusText
 from mechanisms.santext import SanText
+from mechanisms.distext import DisText
 from evaluators.training import Trainer
 from evaluators.utils import Bert_dataset
 
 # Constants
 WORD_EMBEDDING = "glove"
-WORD_EMBEDDING_PATH = "glove.42B.300d.txt"
+WORD_EMBEDDING_PATH = "glove.840B.300d.txt"
 TOP_K = 20
 P = 0.3
 BATCH_SIZE = 64
 LEARNING_RATE = 2e-5
 EPS = 1e-8
 BERT_MODEL = "bert-base-uncased"
-DATASET = "qnli"
+DATASET = "sst2"
 
 
 def preprocess_text(text):
@@ -41,7 +42,7 @@ def preprocess_data(df):
     df["sentence"] = df["sentence"].apply(preprocess_text)
 
     # Convert sentences to lowercase
-    df["sentence"] = df["sentence"].apply(lambda x: x.lower())
+    # df["sentence"] = df["sentence"].apply(lambda x: x.lower())
 
     # Convert 'label' values from 'not_entailment'/'entailment' to 0/1
     label_mapping = {"not_entailment": 0, "entailment": 1}
@@ -51,8 +52,9 @@ def preprocess_data(df):
 
 
 def postprocess_df(df):
-    df = df.drop("sentence", axis=1, inplace=True)
-    df = df.rename(columns={"sanitized sentence": "sentence"}, inplace=True)
+    # Perform operations in place
+    df.drop("sentence", axis=1, inplace=True)
+    df.rename(columns={"sanitized sentence": "sentence"}, inplace=True)
 
     return df
 
@@ -87,6 +89,10 @@ def create_mechanism(detector, epsilon):
             WORD_EMBEDDING, WORD_EMBEDDING_PATH, epsilon, P, detector["detector"]
         )
     elif detector["mechanism"] == CusText:
+        return detector["mechanism"](
+            WORD_EMBEDDING, WORD_EMBEDDING_PATH, epsilon, TOP_K, detector["detector"]
+        )
+    elif detector["mechanism"] == DisText:
         return detector["mechanism"](
             WORD_EMBEDDING, WORD_EMBEDDING_PATH, epsilon, TOP_K, detector["detector"]
         )
@@ -136,8 +142,10 @@ def main():
     detectors = {
         "SanText": {"mechanism": SanText, "detector": SanTextDetector(0.9)},
         "CusText": {"mechanism": CusText, "detector": CusTextDetector()},
+        "DisText": {"mechanism": DisText, "detector": CusTextDetector()},
         "SanText + Presidio": {"mechanism": SanText, "detector": PresidioDetector()},
         "CusText + Presidio": {"mechanism": CusText, "detector": PresidioDetector()},
+        "DisText + Presidio": {"mechanism": DisText, "detector": PresidioDetector()},
     }
     epsilons = [1.0, 2.0, 3.0]
 
@@ -155,6 +163,7 @@ def main():
         for name, detector in detectors.items():
             mechanism = create_mechanism(detector, epsilon)
             mechanism_name = f"{name} with epsilon = {epsilon}"
+            print(f"SANITIZING USING {mechanism_name}")
             train_data = mechanism.sanitize(data["train"])
             validation_data = mechanism.sanitize(data["validation"])
             train_data.head(100).to_csv(
@@ -173,7 +182,7 @@ def main():
             gc.collect()
 
     # After all evaluations, save the results to a CSV file
-    results_df.to_csv("results_qnli.csv", index=False)
+    results_df.to_csv("results_sst2.csv", index=False)
 
 
 if __name__ == "__main__":

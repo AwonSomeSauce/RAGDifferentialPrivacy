@@ -61,6 +61,10 @@ class BaseMechanism:
     def _normalize_distances(self, distances):
         """Normalize the given distances"""
         distance_range = max(distances) - min(distances)
+        # Check if distance_range is zero (i.e., all distances are the same)
+        if distance_range == 0:
+            # If so, return an array of zeros (or some other default value)
+            return [0 for _ in distances]
         min_distance = min(distances)
         return [-(dist - min_distance) / distance_range for dist in distances]
 
