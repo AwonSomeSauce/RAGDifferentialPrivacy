@@ -8,6 +8,10 @@ from llama_index import Document, VectorStoreIndex, ServiceContext
 from llama_index.llms import OpenAI
 from trulens_eval import Tru
 from utils import get_prebuilt_trulens_recorder
+from utils import build_sentence_window_index
+from utils import get_sentence_window_query_engine
+from utils import build_automerging_index
+from utils import get_automerging_query_engine
 
 # Adjusting the system path to include the root directory
 current_script_path = os.path.abspath(__file__)
@@ -63,14 +67,17 @@ def process_mechanisms(tab_df, mechanisms):
         print("-" * 100)
 
         if mechanism.endswith("Plus"):
-            detector_class = (
-                SanTextDetector if "SanText" in mechanism else CusTextDetector
+            detector = (
+                SanTextDetector(0.9) if "SanText" in mechanism else CusTextDetector()
             )
-            detector = detector_class(0.9 if "SanText" in mechanism else None)
             sanitizer = (
                 SanText(WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, P, detector)
                 if "SanText" in mechanism
                 else CusText(
+                    WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
+                )
+                if "CusText" in mechanism
+                else DisText(
                     WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
                 )
             )
@@ -83,18 +90,20 @@ def process_mechanisms(tab_df, mechanisms):
                 else CusText(
                     WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
                 )
+                if "CusText" in mechanism
+                else DisText(
+                    WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
+                )
             )
             tab_df = sanitizer.sanitize(tab_df)
-
-        results_df = evaluate_mechanism(tab_df, mechanism, results_df)
 
     return results_df
 
 
 def evaluate_mechanism(tab_df, mechanism, results_df):
     """Evaluate the mechanism and append results to the DataFrame"""
-    document = Document(text="\n\n".join([doc for doc in tab_df["sentence"]]))
-    llm = OpenAI(model="gpt-4-1106-preview", temperature=0.1)
+    document = Document(text="\n\n".join([doc for doc in tab_df["sanitized sentence"]]))
+    llm = OpenAI(model="gpt-3.5-turbo-1106", temperature=0.1)
     service_context = ServiceContext.from_defaults(
         llm=llm, embed_model="local:BAAI/bge-small-en-v1.5"
     )
@@ -121,6 +130,43 @@ def evaluate_mechanism(tab_df, mechanism, results_df):
     return pd.concat([results_df, pd.DataFrame([results_row])], ignore_index=True)
 
 
+def auto_merging_retrieval(tab_df, mechanism, results_df):
+    documents = [
+        Document(text=doc, id_=idx)
+        for idx, doc in enumerate(tab_df["sanitized sentence"])
+    ]
+    llm = OpenAI(model="gpt-3.5-turbo-1106", temperature=0.1)
+    automerging_index = build_automerging_index(
+        documents,
+        llm,
+        embed_model="local:BAAI/bge-small-en-v1.5",
+        save_dir="merging_index",
+    )
+    automerging_query_engine = get_automerging_query_engine(
+        automerging_index,
+    )
+    tru = Tru()
+    tru.reset_database()
+    application = f"{mechanism} with Automerging Query Engine"
+    tru_recorder_automerging = get_prebuilt_trulens_recorder(
+        automerging_query_engine, app_id=application
+    )
+    eval_questions = read_lines("trulens_evaluation/tab_eval_questions.txt")
+    with tru_recorder_automerging as recording:
+        for batch in chunks(eval_questions, 5):
+            responses = [automerging_query_engine.query(question) for question in batch]
+
+    records, feedback = tru.get_records_and_feedback(app_ids=[application])
+    records.to_csv(f"results/auto_merging_retrieval/{mechanism}.csv", index=False)
+    results_row = {
+        "Mechanism": mechanism,
+        "Answer Relevance": records["Answer Relevance"].mean(),
+        "Context Relevance": records["Context Relevance"].mean(),
+        "Groundedness": records["Groundedness"].mean(),
+    }
+    return pd.concat([results_df, pd.DataFrame([results_row])], ignore_index=True)
+
+
 def read_lines(file_path):
     """Read lines from a file and return them as a list"""
     with open(file_path, "r", encoding="utf-8") as file:
@@ -134,7 +180,6 @@ if __name__ == "__main__":
     tab_df = pd.DataFrame(text_values, columns=["sentence"]).head(30)
 
     mechanisms = [
-        "Unsanitized",
         "SanText Plus",
         "CusText Plus",
         "DisText Plus",
@@ -144,4 +189,15 @@ if __name__ == "__main__":
     ]
 
     results_df = process_mechanisms(tab_df, mechanisms)
-    print(results_df)
+    for mechanism in mechanisms:
+        sanitized_tab_df = pd.read_csv(f"sanitized_datasets/{mechanism}.csv")
+        results_df = pd.DataFrame(
+            columns=[
+                "Mechanism",
+                "Answer Relevance",
+                "Context Relevance",
+                "Groundedness",
+            ]
+        )
+        results_df = auto_merging_retrieval(sanitized_tab_df, mechanism, results_df)
+        print(results_df)

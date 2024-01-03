@@ -6,6 +6,9 @@ results/
 venv/
 word_mappings/
 trained_model/
+sanitized_datasets/
+merging_index/
+sentence_index/
 training_job.sh
 echr_train.json
 default.sqlite
