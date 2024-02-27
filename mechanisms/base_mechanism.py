@@ -44,6 +44,11 @@ class BaseMechanism:
 
         return np.asarray(embeddings), word_to_index, np.asarray(index_to_word)
 
+    def _generate_random_number_string(self, length):
+        """Helper function to generate a random number string of specified length."""
+        digits = "0123456789"
+        return "".join(np.random.choice(list(digits)) for _ in range(length))
+
     def _has_header(self, file):
         """Check if the embeddings file has a header"""
         return len(file.readline().split()) == 2

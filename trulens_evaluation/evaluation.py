@@ -21,6 +21,8 @@ sys.path.insert(0, root_directory)
 from mechanisms.santext import SanText
 from mechanisms.custext import CusText
 from mechanisms.distext import DisText
+from mechanisms.custext_modified import CusTextModified
+from mechanisms.ktext import kText
 from mechanisms.detectors.santext_detector import SanTextDetector
 from mechanisms.detectors.custext_detector import CusTextDetector
 from mechanisms.detectors.presidio_detector import PresidioDetector
@@ -31,7 +33,9 @@ WORD_EMBEDDING_PATH = "glove.840B.300d.txt"
 TOP_K = 20
 EPSILON = 1.0
 P = 0.3
+DISTANCE = 5.5
 TAB_FILE_PATH = "echr_train.json"
+MODELS = ["gpt-3.5-turbo-0125", "gpt-4-1106-preview", "gpt-3.5-turbo-1106"]
 
 
 def get_results(answer_relevance, context_relevance, groundedness):
@@ -73,12 +77,14 @@ def process_mechanisms(tab_df, mechanisms):
             sanitizer = (
                 SanText(WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, P, detector)
                 if "SanText" in mechanism
-                else CusText(
-                    WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
-                )
-                if "CusText" in mechanism
-                else DisText(
-                    WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
+                else (
+                    CusText(
+                        WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
+                    )
+                    if "CusText" in mechanism
+                    else DisText(
+                        WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, DISTANCE, detector
+                    )
                 )
             )
             tab_df = sanitizer.sanitize(tab_df)
@@ -87,12 +93,14 @@ def process_mechanisms(tab_df, mechanisms):
             sanitizer = (
                 SanText(WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, P, detector)
                 if "SanText" in mechanism
-                else CusText(
-                    WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
-                )
-                if "CusText" in mechanism
-                else DisText(
-                    WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
+                else (
+                    CusText(
+                        WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, TOP_K, detector
+                    )
+                    if "CusText" in mechanism
+                    else DisText(
+                        WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, DISTANCE, detector
+                    )
                 )
             )
             tab_df = sanitizer.sanitize(tab_df)
@@ -103,7 +111,10 @@ def process_mechanisms(tab_df, mechanisms):
 def evaluate_mechanism(tab_df, mechanism, results_df):
     """Evaluate the mechanism and append results to the DataFrame"""
     document = Document(text="\n\n".join([doc for doc in tab_df["sanitized sentence"]]))
-    llm = OpenAI(model="gpt-3.5-turbo-1106", temperature=0.1)
+    llm = OpenAI(
+        organization="org-5FDaIDe2hzj7FGqPPiL6V4Jk",
+        model=MODELS[2],
+    )
     service_context = ServiceContext.from_defaults(
         llm=llm, embed_model="local:BAAI/bge-small-en-v1.5"
     )
@@ -177,27 +188,50 @@ def read_lines(file_path):
 if __name__ == "__main__":
     data = read_json_file(TAB_FILE_PATH)
     text_values = extract_text_values(data)
-    tab_df = pd.DataFrame(text_values, columns=["sentence"]).head(30)
+    tab_df = pd.DataFrame(text_values, columns=["sentence"])
 
-    mechanisms = [
-        "SanText Plus",
-        "CusText Plus",
-        "DisText Plus",
-        "SanText Presidio",
-        "CusText Presidio",
-        "DisText Presidio",
-    ]
+    detector = PresidioDetector()
+    mechanism = kText(WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, P, detector, 10)
+    results_df = mechanism.sanitize(tab_df)
+    results_df.to_csv("sanitized_tab/kText Presidio.csv", index=False)
 
-    results_df = process_mechanisms(tab_df, mechanisms)
-    for mechanism in mechanisms:
-        sanitized_tab_df = pd.read_csv(f"sanitized_datasets/{mechanism}.csv")
-        results_df = pd.DataFrame(
-            columns=[
-                "Mechanism",
-                "Answer Relevance",
-                "Context Relevance",
-                "Groundedness",
-            ]
-        )
-        results_df = auto_merging_retrieval(sanitized_tab_df, mechanism, results_df)
-        print(results_df)
+    # mechanisms = [
+    #     "SanText Plus",
+    #     "CusText Plus",
+    #     "DisText Plus",
+    #     "SanText Presidio",
+    #     "CusText Presidio",
+    #     "DisText Presidio",
+    # ]
+
+    # results_df = process_mechanisms(tab_df, mechanisms)
+    # for mechanism in mechanisms:
+    #     sanitized_tab_df = pd.read_csv(f"sanitized_datasets/{mechanism}.csv")
+    #     results_df = pd.DataFrame(
+    #         columns=[
+    #             "Mechanism",
+    #             "Answer Relevance",
+    #             "Context Relevance",
+    #             "Groundedness",
+    #         ]
+    #     )
+    #     results_df = auto_merging_retrieval(sanitized_tab_df, mechanism, results_df)
+    #     print(results_df)
+
+    # mechanism = "kText Presidio"
+    # sanitized_tab_df = pd.read_csv(f"sanitized_datasets/{mechanism}.csv")
+    # results_df = pd.DataFrame(
+    #     columns=[
+    #         "Mechanism",
+    #         "Answer Relevance",
+    #         "Context Relevance",
+    #         "Groundedness",
+    #     ]
+    # )
+    # results_df = evaluate_mechanism(sanitized_tab_df, mechanism, results_df)
+    # print(results_df)
+
+    # detector = SanTextDetector(0.9)
+    # mechanism = SanText(WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, P, detector)
+    # results_df = mechanism.sanitize(tab_df)
+    # results_df.to_csv("random_santext.csv", index=False)

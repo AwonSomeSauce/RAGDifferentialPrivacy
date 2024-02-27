@@ -27,12 +27,17 @@ class SanText(BaseMechanism):
         tokenizer = English()
         vocab = Counter()
         for text in df["sentence"]:
-            tokenized_text = [token.text for token in tokenizer(text) if token.is_alpha]
+            tokenized_text = [
+                token.text
+                for token in tokenizer(text)
+                if (token.is_alpha or token.is_digit)
+            ]
             vocab.update(tokenized_text)
         return vocab
 
     def compute_probability_matrix(self, word_embed_1, word_embed_2):
         """Compute the probability matrix based on euclidean distances between word embeddings"""
+        pdb.set_trace()
         distance = euclidean_distances(word_embed_1, word_embed_2)
         sim_matrix = -distance
         prob_matrix = softmax(self.epsilon * sim_matrix / 2, axis=1)
@@ -127,7 +132,11 @@ class SanText(BaseMechanism):
     ):
         """Sanitize individual sentence"""
         tokenizer = English()
-        tokens = [token.text for token in tokenizer(sentence) if token.is_alpha]
+        tokens = [
+            token.text
+            for token in tokenizer(sentence)
+            if (token.is_alpha or token.is_digit)
+        ]
         sanitized_tokens = []
         id_to_word = {v: k for k, v in sensitive_word_to_id.items()}
         for word in tokens:

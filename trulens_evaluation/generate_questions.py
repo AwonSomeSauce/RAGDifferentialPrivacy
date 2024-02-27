@@ -1,5 +1,7 @@
-import pandas as pd
 import json
+import time
+import pandas as pd
+from tqdm import tqdm
 from openai import OpenAI
 
 
@@ -13,7 +15,7 @@ def generate_questions(text, client):
     """
     try:
         completion = client.chat.completions.create(
-            model="gpt-4-1106-preview",
+            model="gpt-3.5-turbo-0125",
             response_format={"type": "json_object"},
             messages=[
                 {
@@ -42,8 +44,9 @@ def generate_questions(text, client):
 
 
 def main():
-    client = OpenAI()
+    client = OpenAI(organization="org-5FDaIDe2hzj7FGqPPiL6V4Jk")
     tab_file_path = "echr_train.json"
+    questions_file_path = "trulens_evaluation/tab_eval_questions.txt"
 
     # Read the JSON file
     with open(tab_file_path, "r", encoding="utf-8") as file:
@@ -53,19 +56,16 @@ def main():
     text_values = [item["text"] for item in data if "text" in item]
 
     # Create a DataFrame
-    tab_df = pd.DataFrame(text_values, columns=["sentence"]).head(30)
-    questions_dfs = []
+    tab_df = pd.DataFrame(text_values, columns=["sentence"]).iloc[34:]
 
-    for text in tab_df["sentence"]:
+    for text in tqdm(tab_df["sentence"]):  # Wrap the iterable in tqdm
         questions = generate_questions(text, client)
-        questions_df = pd.DataFrame(questions, columns=["Questions"])
-        questions_dfs.append(questions_df)
 
-    # Combine all question DataFrames
-    all_questions_df = pd.concat(questions_dfs, ignore_index=True)
+        with open(questions_file_path, "a") as f:
+            for question in questions:
+                f.write(question + "\n")
 
-    # Save to CSV
-    all_questions_df.to_csv("questions.csv", index=False)
+        time.sleep(5)
 
 
 if __name__ == "__main__":

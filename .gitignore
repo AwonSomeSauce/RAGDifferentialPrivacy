@@ -1,5 +1,8 @@
 glove.42B.300d.txt
 glove.840B.300d.txt
+glove.6B.300d.txt
+random_test.py
+tab_eval_questions.txt
 __pycache__/
 .ipynb_checkpoints/
 results/
@@ -7,6 +10,7 @@ venv/
 word_mappings/
 trained_model/
 sanitized_datasets/
+sanitized_tab/
 merging_index/
 sentence_index/
 training_job.sh

@@ -1,6 +1,7 @@
 import gc
 import pandas as pd
 import numpy as np
+import json
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from transformers import (
@@ -14,6 +15,7 @@ from mechanisms.detectors.presidio_detector import PresidioDetector
 from mechanisms.custext import CusText
 from mechanisms.santext import SanText
 from mechanisms.distext import DisText
+from mechanisms.santext_modified import SanTextModified
 from evaluators.training import Trainer
 from evaluators.utils import Bert_dataset
 
@@ -27,6 +29,8 @@ LEARNING_RATE = 2e-5
 EPS = 1e-8
 BERT_MODEL = "bert-base-uncased"
 DATASET = "sst2"
+TAB_FILE_PATH = "echr_train.json"
+EPSILON = 1.0
 
 
 def preprocess_text(text):
@@ -78,7 +82,7 @@ def load_and_prepare_data():
 
     return {
         "train": process_split("train"),
-        "validation": process_split("validation"),
+        "test": process_split("test"),
     }
 
 
@@ -110,7 +114,7 @@ def initialize_model_and_optimizer():
 
 
 def train_and_evaluate(train_df, validation_df, model, optimizer):
-    """Train the model and evaluate on the validation set."""
+    """Train the model and evaluate on the test set."""
     train_dataset = Bert_dataset(train_df)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     validation_dataset = Bert_dataset(validation_df)
@@ -136,6 +140,17 @@ def train_and_evaluate(train_df, validation_df, model, optimizer):
     return trainer.predict(validation_loader)
 
 
+def read_json_file(file_path):
+    """Read a JSON file and return the data"""
+    with open(file_path, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def extract_text_values(data):
+    """Extract 'text' values from data"""
+    return [item["text"] for item in data if "text" in item]
+
+
 def main():
     """Main function to run the training and evaluation."""
     data = load_and_prepare_data()
@@ -154,7 +169,7 @@ def main():
     model, optimizer = initialize_model_and_optimizer()
 
     # Training and evaluation with the original data
-    accuracy = train_and_evaluate(data["train"], data["validation"], model, optimizer)
+    accuracy = train_and_evaluate(data["train"], data["test"], model, optimizer)
     results_row = {"Mechanism": "Original", "Accuracy": accuracy}
     results_df = pd.concat([results_df, pd.DataFrame([results_row])], ignore_index=True)
 
@@ -165,7 +180,7 @@ def main():
             mechanism_name = f"{name} with epsilon = {epsilon}"
             print(f"SANITIZING USING {mechanism_name}")
             train_data = mechanism.sanitize(data["train"])
-            validation_data = mechanism.sanitize(data["validation"])
+            validation_data = mechanism.sanitize(data["test"])
             train_data.head(100).to_csv(
                 f"{mechanism_name} sanitized {DATASET}.csv", index=False
             )
