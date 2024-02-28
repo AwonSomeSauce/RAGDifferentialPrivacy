@@ -2,7 +2,7 @@ glove.42B.300d.txt
 glove.840B.300d.txt
 glove.6B.300d.txt
 random_test.py
-tab_eval_questions.txt
+trulens_evaluation/tab_eval_questions.txt 
 __pycache__/
 .ipynb_checkpoints/
 results/
