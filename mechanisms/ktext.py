@@ -1,9 +1,10 @@
 from collections import Counter, defaultdict
 import random
 import re
-import numpy as np
 import pdb
+import numpy as np
 from tqdm import tqdm
+import scipy.spatial.distance as sp_dist
 from spacy.lang.en import English
 from sklearn.metrics.pairwise import euclidean_distances
 from scipy.special import softmax
@@ -26,14 +27,13 @@ class kText(BaseMechanism):
         p,
         detector,
         top_k,
+        distance_metric,
     ):
         super().__init__(word_embedding, word_embedding_path, epsilon)
         self.p = p
         self.detector = detector
         self.top_k = top_k
-        self.SIMILAR_WORD_MAPPINGS_PATH = (
-            f"./word_mappings/ktext/similar_word_mappings_{self.epsilon}.txt"
-        )
+        self.distance_metric = distance_metric
 
     def build_vocab_from_dataset(self, df):
         """Build vocabulary from dataset"""
@@ -76,42 +76,33 @@ class kText(BaseMechanism):
         """Sanitize dataset"""
         return self._transform_sentences(dataset)
 
-    def _get_sensitivity(self, words, id_to_word, word_to_id, general_embeddings):
-        substituted_word_dict = defaultdict(str)
+    def get_sensitivity(self, words, word_to_id, general_embeddings):
         max_distance_dict = defaultdict(float)
-        similar_word_dict = defaultdict(list)
 
         for word in words:
-            if word in word_to_id and word not in substituted_word_dict:
-                similar_indices = euclidean_distances(
+            if word in word_to_id and word not in max_distance_dict:
+                metric_parameters = {}
+                if self.distance_metric == "minkowski":
+                    metric_parameters["p"] = 3
+                similar_indices = sp_dist.cdist(
                     general_embeddings[word_to_id[word]].reshape(1, -1),
                     general_embeddings,
+                    metric=self.distance_metric,
+                    **metric_parameters
                 )[0].argsort()[: self.top_k]
-                similar_words = [id_to_word[idx] for idx in similar_indices]
-                similar_embeddings = np.array(
-                    [general_embeddings[idx] for idx in similar_indices]
-                )
-                substituted_word_dict[word] = word
-                similarity_distances = euclidean_distances(
+                max_distance_index = similar_indices[-1]
+                max_distance = sp_dist.cdist(
                     general_embeddings[word_to_id[word]].reshape(1, -1),
-                    similar_embeddings,
-                )[0]
-
-                # Maximum distance tracking
-                max_distance = np.max(similarity_distances)
-                if (
-                    word not in max_distance_dict
-                    or max_distance > max_distance_dict[word]
-                ):
-                    max_distance_dict[word] = max_distance
-
-                similar_word_dict[word] = similar_words
-
-        self._save_to_file(self.SIMILAR_WORD_MAPPINGS_PATH, similar_word_dict)
+                    general_embeddings[max_distance_index].reshape(1, -1),
+                    metric=self.distance_metric,
+                    **metric_parameters
+                )
+                max_distance_dict[word] = max_distance
 
         # Finding the word with the greatest maximum distance
         word_with_greatest_dist = max(max_distance_dict, key=max_distance_dict.get)
-        return max_distance_dict[word_with_greatest_dist], similar_word_dict
+        print("The word with furthest neighbours is: ", word_with_greatest_dist)
+        return max_distance_dict[word_with_greatest_dist]
 
     def _transform_sentences(self, df):
         """Transform sentences in the dataframe"""
@@ -122,9 +113,7 @@ class kText(BaseMechanism):
         processed_data = self.process_word_embeddings(vocab)
         (general_embeddings, word_to_id) = processed_data
         id_to_word = {v: k for k, v in word_to_id.items()}
-        sensitivity, similar_word_cache = self._get_sensitivity(
-            words, id_to_word, word_to_id, general_embeddings
-        )
+        sensitivity = self.get_sensitivity(words, word_to_id, general_embeddings)
 
         sanitized_sentences = []
 
@@ -142,7 +131,6 @@ class kText(BaseMechanism):
                 words,
                 sensitive_words,
                 sensitivity,
-                similar_word_cache,
             )
             sanitized_sentences.append(sanitized)
 
@@ -160,7 +148,6 @@ class kText(BaseMechanism):
         words,
         sensitive_words,
         sensitivity,
-        similar_word_cache,
     ):
         """Sanitize individual sentence"""
         tokenizer = English()
@@ -180,7 +167,6 @@ class kText(BaseMechanism):
                     words,
                     sensitive_words,
                     sensitivity,
-                    similar_word_cache,
                 )
             )
         return " ".join(sanitized_tokens)
@@ -194,7 +180,6 @@ class kText(BaseMechanism):
         words,
         sensitive_words,
         sensitivity,
-        similar_word_cache,
     ):
         """Get substitute for word or return original if not sanitized"""
         if re.match(r"^\d+$", word):
@@ -208,7 +193,6 @@ class kText(BaseMechanism):
                     word_to_id,
                     id_to_word,
                     sensitivity,
-                    similar_word_cache,
                 )
             else:
                 return word
@@ -222,7 +206,6 @@ class kText(BaseMechanism):
         word_to_id,
         id_to_word,
         sensitivity,
-        similar_word_cache,
     ):
         """Retrieve a substitute word"""
         # similar_words = similar_word_cache[word]
@@ -230,7 +213,6 @@ class kText(BaseMechanism):
         # Filter embeddings and word_to_id based on similar_words
         # cache_word_ids = [word_to_id[w] for w in similar_words if w in word_to_id]
         # cache_embeddings = general_embeddings[cache_word_ids]
-        pdb.set_trace()
         distances = euclidean_distances(
             general_embeddings[word_to_id[word]].reshape(1, -1),
             general_embeddings,

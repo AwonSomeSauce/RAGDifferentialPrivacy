@@ -190,10 +190,24 @@ if __name__ == "__main__":
     text_values = extract_text_values(data)
     tab_df = pd.DataFrame(text_values, columns=["sentence"])
 
+    metrics = ["euclidean", "minkowski", "chebyshev"]
+    ks = [3, 5, 10]
+
     detector = PresidioDetector()
-    mechanism = kText(WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, P, detector, 10)
-    results_df = mechanism.sanitize(tab_df)
-    results_df.to_csv("sanitized_tab/kText Presidio.csv", index=False)
+
+    print("Calculating Sensitivities:\n")
+    results = {}
+    for k in ks:
+        for metric in metrics:
+            mechanism = kText(
+                WORD_EMBEDDING, WORD_EMBEDDING_PATH, EPSILON, P, detector, k, metric
+            )
+            sensitivity = mechanism.sanitize(tab_df)
+            results[(k, metric)] = sensitivity
+
+            print(f"k: {k}, Metric: {metric}, Sensitivity: {sensitivity}")
+
+    # results_df.to_csv("sanitized_tab/kText Presidio.csv", index=False)
 
     # mechanisms = [
     #     "SanText Plus",
